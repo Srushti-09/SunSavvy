@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="SunSavvy — Real-time UV index and sunscreen advisor. Built with OpenUV API." />
+    <title>☀️ SunSavvy — UV Index</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☀️</text></svg>" />
+  </head>
+  <body>
+    <!-- Animated background -->
+    <div class="bg-animation">
+      <div class="orb"></div>
+      <div class="orb"></div>
+      <div class="orb"></div>
+      <div class="orb"></div>
+    </div>
+    <div class="particles" id="particles"></div>
+
+    <!-- ==================== NAVIGATION BAR ==================== -->
+    <nav class="navbar" id="navbar">
+      <div class="nav-inner">
+        <a href="/" class="nav-brand">
+          <svg class="nav-sun" viewBox="0 0 120 120" width="32" height="32">
+            <defs>
+              <radialGradient id="nsg" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="#fde68a"/>
+                <stop offset="100%" stop-color="#f97316"/>
+              </radialGradient>
+            </defs>
+            <g class="nav-sun-rays">
+              <line x1="60" y1="10" x2="60" y2="24" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+              <line x1="60" y1="96" x2="60" y2="110" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+              <line x1="10" y1="60" x2="24" y2="60" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+              <line x1="96" y1="60" x2="110" y2="60" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+              <line x1="25" y1="25" x2="35" y2="35" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+              <line x1="85" y1="85" x2="95" y2="95" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+              <line x1="95" y1="25" x2="85" y2="35" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+              <line x1="25" y1="95" x2="35" y2="85" stroke="#f59e0b" stroke-width="4" stroke-linecap="round"/>
+            </g>
+            <circle cx="60" cy="60" r="26" fill="url(#nsg)"/>
+          </svg>
+          <span class="brand-text">SunSavvy</span>
+        </a>
+
+
+        <div class="nav-links">
+          <a href="#hero" class="nav-link active">Home</a>
+          <a href="#stats" class="nav-link">Stats</a>
+          <a href="#exposure" class="nav-link">Exposure</a>
+          <a href="https://www.openuv.io/" target="_blank" rel="noopener" class="nav-link">API ↗</a>
+        </div>
+
+        <!-- City Selector -->
+        <div class="nav-city-selector">
+          <select id="citySelect" onchange="changeCity(this.value)">
+            <% Object.keys(cities).forEach(function(key) { %>
+            <option value="<%= key %>" <%= key === selectedCity ? 'selected' : '' %>><%= cities[key].name %></option>
+            <% }); %>
+          </select>
+        </div>
+      </div>
+    </nav>
+
+    <!-- ==================== MAIN CONTENT ==================== -->
+    <main class="main-content">
+
+      <% if (error) { %>
+      <!-- ====== ERROR STATE ====== -->
+      <section class="hero-section" id="hero">
+        <div class="hero-grid">
+          <div class="hero-left">
+            <div class="error-card">
+              <div class="error-icon">⚠️</div>
+              <h2>Oops! Something went wrong</h2>
+              <p><%= error %></p>
+              <a href="/" class="retry-btn"><span class="btn-shimmer"></span>🔄 Try Again</a>
+            </div>
+          </div>
+          <div class="hero-right">
+            <img src="/illustration.png" alt="Sunscreen protection illustration" class="hero-illustration" />
+          </div>
+        </div>
+      </section>
+
+      <% } else if (uvData) { %>
+      <!-- ====== HERO SECTION — SPLIT LAYOUT ====== -->
+      <section class="hero-section" id="hero">
+        <div class="hero-grid">
+          <!-- LEFT: UV Data -->
+          <div class="hero-left">
+            <div class="location-info">
+              <span class="pin-bounce">📍</span>
+              <h2><%= uvData.location %></h2>
+              <p class="date-text"><%= uvData.date %></p>
+            </div>
+
+            <!-- UV Gauge -->
+            <div class="gauge-wrapper">
+              <svg class="gauge-svg" viewBox="0 0 200 200" width="180" height="180">
+                <defs>
+                  <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#22c55e"/>
+                    <stop offset="30%" stop-color="#eab308"/>
+                    <stop offset="60%" stop-color="#f97316"/>
+                    <stop offset="80%" stop-color="#ef4444"/>
+                    <stop offset="100%" stop-color="#9333ea"/>
+                  </linearGradient>
+                </defs>
+                <circle cx="100" cy="100" r="85" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="10" stroke-dasharray="400 134" stroke-dashoffset="-67" stroke-linecap="round"/>
+                <circle class="gauge-fill" cx="100" cy="100" r="85" fill="none" stroke="url(#gaugeGrad)" stroke-width="10" stroke-dasharray="0 534" stroke-dashoffset="-67" stroke-linecap="round" id="gaugeFill"/>
+              </svg>
+              <div class="gauge-center">
+                <div class="uv-number" id="uvCounter" style="color: <%= uvData.classification.color %>">0</div>
+                <div class="uv-label">UV INDEX</div>
+              </div>
+            </div>
+
+            <!-- Risk Badge -->
+            <div class="risk-badge <%= uvData.classification.colorName %>">
+              <span class="badge-pulse"></span>
+              <span><%= uvData.classification.level %> Risk</span>
+            </div>
+
+            <!-- Recommendation -->
+            <div class="recommendation">
+              <div class="rec-title"><%= uvData.classification.message %></div>
+              <p class="rec-description"><%= uvData.classification.description %></p>
+              <div class="rec-tip">
+                <strong>💡 Tip:</strong> <%= uvData.classification.tip %>
+              </div>
+            </div>
+          </div>
+
+          <!-- RIGHT: Illustration + Progress -->
+          <div class="hero-right">
+            <img src="<%= uvData.classification.image %>" alt="Sun protection illustration" class="hero-illustration" />
+
+            <!-- UV Scale Bar -->
+            <div class="uv-scale-card">
+              <h3>UV Scale</h3>
+              <div class="uv-progress-track">
+                <div class="uv-progress-fill <%= uvData.classification.colorName %>" id="uvProgressBar" style="width: 0%"></div>
+                <div class="progress-dot" id="progressDot" style="left: 0%; --dot-color: <%= uvData.classification.color %>"></div>
+              </div>
+              <div class="uv-progress-segments">
+                <span>Low<br><small>0-2</small></span>
+                <span>Moderate<br><small>3-5</small></span>
+                <span>High<br><small>6-7</small></span>
+                <span>Very High<br><small>8-10</small></span>
+                <span>Extreme<br><small>11+</small></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====== STATS SECTION ====== -->
+      <section class="stats-section" id="stats">
+        <h2 class="section-title">📊 Today's UV Statistics</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">📈</div>
+            <div class="stat-value" style="color: <%= uvData.maxClassification.color %>"><%= uvData.max %></div>
+            <div class="stat-label">Max UV Today</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🕐</div>
+            <div class="stat-value"><%= uvData.maxTime %></div>
+            <div class="stat-label">Peak Time</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🌡️</div>
+            <div class="stat-value"><%= uvData.current %></div>
+            <div class="stat-label">Current UV</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🔄</div>
+            <div class="stat-value"><%= uvData.fetchedAt %></div>
+            <div class="stat-label">Last Updated</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ====== SAFE EXPOSURE SECTION ====== -->
+      <% if (uvData.safeExposure) { %>
+      <section class="exposure-section" id="exposure">
+        <h2 class="section-title">🛡️ Safe Exposure Times</h2>
+        <p class="section-subtitle">How long you can stay in the sun without protection</p>
+        <div class="exposure-grid">
+          <%
+            var skinTypes = [
+              { key: 'st1', label: 'Type I', desc: 'Very Fair', emoji: '👩🏻' },
+              { key: 'st2', label: 'Type II', desc: 'Fair', emoji: '👩🏼' },
+              { key: 'st3', label: 'Type III', desc: 'Medium', emoji: '👩🏽' },
+              { key: 'st4', label: 'Type IV', desc: 'Olive', emoji: '👩🏾' },
+              { key: 'st5', label: 'Type V', desc: 'Brown', emoji: '👨🏾' },
+              { key: 'st6', label: 'Type VI', desc: 'Dark', emoji: '👨🏿' }
+            ];
+          %>
+          <% skinTypes.forEach(function(skin) { %>
+          <div class="exposure-card">
+            <div class="exposure-emoji"><%= skin.emoji %></div>
+            <div class="skin-type"><%= skin.label %></div>
+            <div class="skin-desc"><%= skin.desc %></div>
+            <% if (uvData.safeExposure[skin.key] != null) { %>
+            <div class="exposure-time"><%= Math.round(uvData.safeExposure[skin.key]) %></div>
+            <div class="exposure-unit">min</div>
+            <% } else { %>
+            <div class="exposure-time">∞</div>
+            <div class="exposure-unit">no limit</div>
+            <% } %>
+          </div>
+          <% }); %>
+        </div>
+      </section>
+      <% } %>
+
+      <% } %>
+    </main>
+
+    <!-- ==================== FOOTER ==================== -->
+    <footer class="footer">
+      <div class="footer-inner">
+        <p>Powered by <a href="https://www.openuv.io/" target="_blank" rel="noopener">OpenUV API</a> &nbsp;•&nbsp; Built with Node.js, Express &amp; Axios</p>
+      </div>
+    </footer>
+
+    <!-- ==================== SCRIPTS ==================== -->
+    <script>
+      // City selector
+      function changeCity(city) {
+        window.location.href = '/?city=' + city;
+      }
+
+      // Navbar scroll effect
+      window.addEventListener('scroll', function() {
+        var navbar = document.getElementById('navbar');
+        if (window.scrollY > 20) {
+          navbar.classList.add('scrolled');
+        } else {
+          navbar.classList.remove('scrolled');
+        }
+      });
+
+      document.addEventListener("DOMContentLoaded", function () {
+        // Floating particles
+        var pc = document.getElementById("particles");
+        if (pc) {
+          for (var i = 0; i < 25; i++) {
+            var p = document.createElement("div");
+            p.className = "particle";
+            p.style.left = Math.random() * 100 + "%";
+            p.style.top = Math.random() * 100 + "%";
+            var size = (Math.random() * 3 + 1) + "px";
+            p.style.width = size;
+            p.style.height = size;
+            p.style.animationDelay = (Math.random() * 8) + "s";
+            p.style.animationDuration = (Math.random() * 12 + 10) + "s";
+            pc.appendChild(p);
+          }
+        }
+
+        <% if (uvData) { %>
+        // Counter animation
+        var counterEl = document.getElementById("uvCounter");
+        var targetValue = <%= uvData.current %>;
+        if (counterEl) {
+          var startTime = null;
+          var duration = 1800;
+          function animateCounter(ts) {
+            if (!startTime) startTime = ts;
+            var progress = Math.min((ts - startTime) / duration, 1);
+            var eased = 1 - Math.pow(1 - progress, 3);
+            counterEl.textContent = (eased * targetValue).toFixed(1);
+            if (progress < 1) requestAnimationFrame(animateCounter);
+            else counterEl.textContent = targetValue.toFixed(1);
+          }
+          setTimeout(function() { requestAnimationFrame(animateCounter); }, 600);
+        }
+
+        // Gauge arc animation
+        var gaugeFill = document.getElementById("gaugeFill");
+        if (gaugeFill) {
+          var maxArc = 400;
+          var gaugePercent = Math.min(targetValue / 11, 1);
+          var arcLength = gaugePercent * maxArc;
+          setTimeout(function() {
+            gaugeFill.style.transition = "stroke-dasharray 2.2s cubic-bezier(0.22, 1, 0.36, 1)";
+            gaugeFill.setAttribute("stroke-dasharray", arcLength + " " + (534 - arcLength));
+          }, 500);
+        }
+
+        // Progress bar
+        var bar = document.getElementById("uvProgressBar");
+        var dot = document.getElementById("progressDot");
+        if (bar) {
+          var pct = Math.min((targetValue / 11) * 100, 100);
+          setTimeout(function() {
+            bar.style.width = pct + "%";
+            if (dot) dot.style.left = pct + "%";
+          }, 800);
+        }
+
+        // Intersection Observer for scroll animations
+        var obs = new IntersectionObserver(function(entries) {
+          entries.forEach(function(e) {
+            if (e.isIntersecting) {
+              e.target.classList.add("visible");
+              obs.unobserve(e.target);
+            }
+          });
+        }, { threshold: 0.1 });
+
+        document.querySelectorAll(".stat-card, .exposure-card").forEach(function(el, i) {
+          el.style.transitionDelay = (i * 0.08) + "s";
+          obs.observe(el);
+        });
+        <% } %>
+
+        // Smooth scroll for nav links
+        document.querySelectorAll('.nav-link[href^="#"]').forEach(function(link) {
+          link.addEventListener('click', function(e) {
+            var target = document.querySelector(this.getAttribute('href'));
+            if (target) {
+              e.preventDefault();
+              target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+          });
+        });
+      });
+    </script>
+  </body>
+</html>
