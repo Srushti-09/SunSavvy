@@ -52,13 +52,20 @@
           <a href="https://www.openuv.io/" target="_blank" rel="noopener" class="nav-link">API ↗</a>
         </div>
 
-        <!-- City Selector -->
-        <div class="nav-city-selector">
-          <select id="citySelect" onchange="changeCity(this.value)">
-            <% Object.keys(cities).forEach(function(key) { %>
-            <option value="<%= key %>" <%= key === selectedCity ? 'selected' : '' %>><%= cities[key].name %></option>
-            <% }); %>
-          </select>
+        <!-- Structured Location Filter -->
+        <div class="nav-location-controls">
+          <div class="filter-group">
+            <select id="locationCategory" class="category-select">
+              <option value="city">City</option>
+              <option value="country">Country</option>
+            </select>
+            
+            <div class="search-wrapper">
+              <input type="text" id="locationInput" placeholder="Search..." onkeypress="handleSearch(event)">
+              <button class="search-btn" onclick="searchLocation()">🔍</button>
+            </div>
+          </div>
+          <button class="gps-btn" onclick="detectMyLocation()" title="Detect My Location">📍</button>
         </div>
       </div>
     </nav>
@@ -183,6 +190,35 @@
         </div>
       </section>
 
+      <!-- ====== SUN INFO & OZONE SECTION ====== -->
+      <% if (uvData.sunInfo || uvData.ozone) { %>
+      <section class="sun-info-section" id="sun-info" style="margin-top: 3rem;">
+        <h2 class="section-title">☀️ Sun &amp; Ozone Information</h2>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon">🌍</div>
+            <div class="stat-value"><%= uvData.ozone ? uvData.ozone + ' du' : 'N/A' %></div>
+            <div class="stat-label">Ozone Level</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🌅</div>
+            <div class="stat-value"><%= (uvData.sunInfo && uvData.sunInfo.sun_times && uvData.sunInfo.sun_times.sunrise) ? new Date(uvData.sunInfo.sun_times.sunrise).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A' %></div>
+            <div class="stat-label">Sunrise</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🌇</div>
+            <div class="stat-value"><%= (uvData.sunInfo && uvData.sunInfo.sun_times && uvData.sunInfo.sun_times.sunset) ? new Date(uvData.sunInfo.sun_times.sunset).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'N/A' %></div>
+            <div class="stat-label">Sunset</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🧭</div>
+            <div class="stat-value"><%= (uvData.sunInfo && uvData.sunInfo.sun_position && uvData.sunInfo.sun_position.altitude) ? uvData.sunInfo.sun_position.altitude.toFixed(2) + ' rad' : 'N/A' %></div>
+            <div class="stat-label">Sun Altitude</div>
+          </div>
+        </div>
+      </section>
+      <% } %>
+
       <!-- ====== SAFE EXPOSURE SECTION ====== -->
       <% if (uvData.safeExposure) { %>
       <section class="exposure-section" id="exposure">
@@ -229,9 +265,81 @@
 
     <!-- ==================== SCRIPTS ==================== -->
     <script>
-      // City selector
+      // City selector (Quick Select)
       function changeCity(city) {
-        window.location.href = '/?city=' + city;
+        if (city) window.location.href = '/?city=' + city;
+      }
+
+      // Handle Enter key in search
+      function handleSearch(e) {
+        if (e.key === 'Enter') searchLocation();
+      }
+
+      // Search location using Nominatim (OSM)
+      async function searchLocation() {
+        const query = document.getElementById('locationInput').value;
+        const category = document.getElementById('locationCategory').value;
+        if (!query) return;
+
+        const btn = document.querySelector('.search-btn');
+        btn.textContent = '⏳';
+
+        try {
+          // Use featuretype if it helps, but mostly rely on result validation
+          const resp = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&addressdetails=1&limit=5`);
+          const data = await resp.json();
+
+          if (data && data.length > 0) {
+            // Find a result that matches the category
+            const match = data.find(loc => {
+              const type = loc.addresstype || loc.type;
+              
+              if (category === 'country') return type === 'country';
+              if (category === 'city') return ['city', 'town', 'village', 'municipality'].includes(type);
+              return true;
+            });
+
+            if (match) {
+              window.location.href = `/?lat=${match.lat}&lng=${match.lon}&name=${encodeURIComponent(match.display_name.split(',')[0])}`;
+            } else {
+              // Detailed error based on the first result's actual type
+              const firstType = data[0].addresstype || data[0].type;
+              alert(`❌ Error: You selected "${category}" but entered a "${firstType}". Please check your input and try again.`);
+              btn.textContent = '🔍';
+            }
+          } else {
+            alert(`Location not found. Please enter a valid ${category} name.`);
+            btn.textContent = '🔍';
+          }
+        } catch (err) {
+          console.error(err);
+          alert("Error finding location. Please check your internet connection.");
+          btn.textContent = '🔍';
+        }
+      }
+
+      // Browser Geolocation
+      function detectMyLocation() {
+        const btn = document.querySelector('.gps-btn');
+        btn.textContent = '⏳';
+
+        if (!navigator.geolocation) {
+          alert("Geolocation is not supported by your browser.");
+          btn.textContent = '📍';
+          return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            const { latitude, longitude } = pos.coords;
+            window.location.href = `/?lat=${latitude}&lng=${longitude}&name=My Current Location`;
+          },
+          (err) => {
+            console.error(err);
+            alert("Location access denied. Please enable GPS permissions in your browser.");
+            btn.textContent = '📍';
+          }
+        );
       }
 
       // Navbar scroll effect
@@ -260,6 +368,13 @@
             p.style.animationDuration = (Math.random() * 12 + 10) + "s";
             pc.appendChild(p);
           }
+        }
+
+        // Auto-detect location on first load if no coordinates are present
+        const urlParams = new URLSearchParams(window.location.search);
+        if (!urlParams.get('lat') && !urlParams.get('city')) {
+          console.log("📍 Auto-detecting device location...");
+          detectMyLocation();
         }
 
         <% if (uvData) { %>

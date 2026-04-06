@@ -11,6 +11,10 @@ app.set("view engine", "ejs");
 app.set("views", path.join(__dirname, "views"));
 app.use(express.static(path.join(__dirname, "public")));
 
+// Simple in-memory cache to save API quota
+const uvCache = new Map();
+const CACHE_TTL = 15 * 60 * 1000; // 15 minutes
+
 // ===================== LOCATIONS DATABASE =====================
 const COUNTRIES = {
   india: { name: "India", lat: 20.5937, lng: 78.9629 },
@@ -97,11 +101,19 @@ app.get("/", async (req, res) => {
       });
     }
 
-    var selectedCity = req.query.city || "india";
-    var cityData = COUNTRIES[selectedCity];
+    const selectedCity = req.query.city || "india";
+    const cityData = COUNTRIES[selectedCity];
     var lat = req.query.lat ? parseFloat(req.query.lat) : (cityData ? cityData.lat : 20.5937);
     var lng = req.query.lng ? parseFloat(req.query.lng) : (cityData ? cityData.lng : 78.9629);
-    var locationName = cityData ? cityData.name : "Custom Location";
+    var locationName = req.query.name || (cityData ? cityData.name : "Custom Location");
+
+    // 1. Check Cache First (save your daily limit!)
+    const cacheKey = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+    const cached = uvCache.get(cacheKey);
+    if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
+      console.log(`📦 CACHE HIT: Reusing data for ${locationName}`);
+      return res.render("index", { ...cached.data, cities: COUNTRIES, selectedCity: selectedCity });
+    }
 
     console.log(`📡 [GET] Calling OpenUV API for: ${locationName} (${lat}, ${lng})`);
 
@@ -114,6 +126,7 @@ app.get("/", async (req, res) => {
     });
 
     const result = response.data.result;
+    console.log(`📥 API Response for ${locationName}:`, JSON.stringify(result, null, 2));
     const uvIndex = Math.round(result.uv * 10) / 10;
     console.log(`✅ API SUCCESS: Received UV Index ${uvIndex} for ${locationName}`);
 
@@ -124,46 +137,58 @@ app.get("/", async (req, res) => {
     const uvTime = new Date(result.uv_time).toLocaleTimeString("en-IN", {
       hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata",
     });
+    
+    const ozone = result.ozone;
+    const sunInfo = result.sun_info;
 
     const classification = getUVData(uvIndex);
     const maxClassification = getUVData(uvMax);
     const safeExposure = result.safe_exposure_time || {};
 
-    res.render("index", {
+    const renderData = {
       error: null,
       cities: COUNTRIES,
       selectedCity: selectedCity,
       uvData: {
         current: uvIndex, max: uvMax, maxTime: uvMaxTime, fetchedAt: uvTime,
         classification, maxClassification, safeExposure,
+        ozone: ozone, sunInfo: sunInfo,
         location: locationName, lat: lat, lng: lng,
         date: new Date().toLocaleDateString("en-IN", {
           weekday: "long", year: "numeric", month: "long", day: "numeric",
           timeZone: "Asia/Kolkata",
         }),
       },
-    });
+    };
+
+    // 2. Save to Cache
+    uvCache.set(cacheKey, { timestamp: Date.now(), data: renderData });
+
+    res.render("index", renderData);
   } catch (err) {
-    console.error(`❌ API ERROR: ${err.message}. Showing fallback data for demo.`);
- 
-    // Provide realistic country-specific fallback data so the user sees a dynamic UI
-    const selectedCity = req.query.city || "india";
-    const cityData = COUNTRIES[selectedCity] || COUNTRIES.india;
-
-    // Deterministic simulation: Different regions show different UV levels for the demo
-    let demoUV = 0.0;
-    let demoMaxUV = 12.0;
-
-    if (["uae", "singapore", "brazil", "australia"].includes(selectedCity)) {
-      demoUV = 8.4; // High UV -> Shows "High" UI and Beach Scene
-      demoMaxUV = 13.5;
-    } else if (["uk", "canada", "russia", "germany"].includes(selectedCity)) {
-      demoUV = 1.2; // Low UV -> Shows "Low" UI and Calm Scene
-      demoMaxUV = 3.5;
+    if (err.response && err.response.status === 403) {
+      console.error(`🛑 API ERROR: Daily Limit Reached (403). Showing fallback data.`);
     } else {
-      demoUV = 4.2; // Moderate UV -> Shows "Moderate" UI and Normal Scene
-      demoMaxUV = 7.8;
+      console.error(`❌ API ERROR: ${err.message}. Showing fallback data for demo.`);
     }
+ 
+    // Provide realistic location-aware simulation so the user sees a dynamic UI
+    const hour = new Date().getHours() + (new Date().getMinutes() / 60);
+    const absLat = Math.abs(lat);
+    
+    // Smart Simulation Logic:
+    // 1. Latitude Factor: Closer to Equator (0) = Higher UV. Closer to Poles (90) = Lower UV.
+    let latFactor = Math.max(0, 1 - (absLat / 70)); 
+    
+    // 2. Time Factor: Peak at 1 PM (13:00), low at night.
+    let timeFactor = Math.max(0, Math.cos((hour - 13) * Math.PI / 12));
+    
+    // 3. Combine and add a bit of random "weather" variance
+    let demoUV = (14 * latFactor * timeFactor) + (Math.random() * 0.8);
+    demoUV = Math.round(Math.max(0, demoUV) * 10) / 10;
+    
+    let demoMaxUV = demoUV + 1.2 + (Math.random() * 2);
+    demoMaxUV = Math.round(demoMaxUV * 10) / 10;
 
     const classification = getUVData(demoUV);
     const maxClassification = getUVData(demoMaxUV);
@@ -171,11 +196,23 @@ app.get("/", async (req, res) => {
     res.render("index", {
       error: null,
       cities: COUNTRIES,
-      selectedCity: selectedCity,
+      selectedCity: req.query.city || "india",
       uvData: {
-        current: demoUV, max: demoMaxUV, maxTime: "1:20 PM", fetchedAt: "Simulated Data",
+        current: demoUV, max: demoMaxUV, maxTime: "Peak Hour", fetchedAt: "Simulated ✅",
         classification, maxClassification,
-        location: cityData.name,
+        ozone: 300 + Math.round(Math.random() * 50),
+        sunInfo: {
+          sun_times: {
+            sunrise: new Date(new Date().setHours(6, 0, 0, 0)).toISOString(),
+            sunset: new Date(new Date().setHours(18, 30, 0, 0)).toISOString()
+          },
+          sun_position: {
+            altitude: 0.8,
+            azimuth: 1.5
+          }
+        },
+        location: locationName,
+        lat: lat, lng: lng,
         date: new Date().toLocaleDateString("en-IN", {
           weekday: "long", year: "numeric", month: "long", day: "numeric",
           timeZone: "Asia/Kolkata",
